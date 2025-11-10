@@ -2,8 +2,11 @@ pipeline {
   agent any
   environment {
     IMAGE = "aceest_fitness_local"
-    TAG = "${env.BUILD_ID}"
+    TAG   = "${env.BUILD_ID}"
     HOST_WORKDIR = "/home/slad/Desktop/DEVOPS"
+    # Set your GHCR username here (change if different)
+    GHCR_USER = "SanketLad08"
+    # Use Jenkins secret (create credentials with id GHCR_PAT)
   }
 
   stages {
@@ -13,6 +16,7 @@ pipeline {
 
     stage('Prepare Host-Mounted Workspace') {
       steps {
+        echo "Copying workspace to host-mounted absolute directory (${HOST_WORKDIR})..."
         sh '''
           mkdir -p ${HOST_WORKDIR}
           rm -rf ${HOST_WORKDIR}/*
@@ -25,7 +29,7 @@ pipeline {
 
     stage('Unit Test') {
       steps {
-        echo "Running pytest in a host-mounted python container using ${HOST_WORKDIR} (PYTHONPATH=/src)..."
+        echo "Running pytest in a host-mounted python container (PYTHONPATH=/src)..."
         sh '''
           mkdir -p reports
           docker run --rm -e PYTHONPATH=/src -v /home/slad/Desktop/DEVOPS:/src -w /src python:3.11-slim bash -lc "
@@ -43,16 +47,42 @@ pipeline {
     }
 
     stage('Build Docker Image') {
-      when { expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' } }
+      when { expression { currentBuild.result != 'FAILURE' } } // run on SUCCESS or UNSTABLE
       steps {
-        sh "docker build -t ${IMAGE}:${TAG} /home/slad/Desktop/DEVOPS/app"
+        echo "Building Docker image from host path ${HOST_WORKDIR}/app ..."
+        sh "docker build -t ${IMAGE}:${TAG} ${HOST_WORKDIR}/app"
+      }
+    }
+
+    stage('Push to GHCR') {
+      when { expression { currentBuild.result != 'FAILURE' } } // only skip on FAILURE
+      steps {
+        echo "Pushing image to GHCR..."
+        withCredentials([string(credentialsId: 'GHCR_PAT', variable: 'GHCR_TOKEN')]) {
+          sh """
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+            docker tag ${IMAGE}:${TAG} ghcr.io/${GHCR_USER}/aceest_fitness:${TAG}
+            docker push ghcr.io/${GHCR_USER}/aceest_fitness:${TAG}
+            # also update latest tag (optional)
+            docker tag ${IMAGE}:${TAG} ghcr.io/${GHCR_USER}/aceest_fitness:latest
+            docker push ghcr.io/${GHCR_USER}/aceest_fitness:latest || true
+            docker images | grep aceest_fitness || true
+          """
+        }
       }
     }
 
     stage('List Built Images') {
-      steps { sh "docker images | grep ${IMAGE} || true" }
+      steps {
+        sh "docker images | grep aceest_fitness || true"
+      }
     }
   }
 
-  post { always { echo 'Pipeline finished' } }
+  post {
+    always { echo 'Pipeline finished' }
+    success { echo "Build succeeded: image ${IMAGE}:${TAG}" }
+    unstable { echo "Build unstable — tests had warnings or non-fatal issues." }
+    failure { echo "Build failed — check console output." }
+  }
 }
