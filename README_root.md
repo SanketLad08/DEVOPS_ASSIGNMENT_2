@@ -1,3 +1,5 @@
+## v1.2 improvements - README notes
+
 # ACEest Fitness - DevOps CI/CD Project (Prepared)
 
 This archive contains a ready-to-run project for the ACEest Fitness & Gym DevOps CI/CD assignment.

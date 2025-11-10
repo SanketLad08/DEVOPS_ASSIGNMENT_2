@@ -38,3 +38,9 @@ def test_add_member_invalid(client):
     payload = {'name': '', 'age': 'not-int'}
     rv = client.post('/api/members', json=payload)
     assert rv.status_code == 400
+
+def test_get_schedules(client):
+    rv = client.get('/api/schedules')
+    assert rv.status_code == 200
+    data = rv.get_json()
+    assert 'schedules' in data
