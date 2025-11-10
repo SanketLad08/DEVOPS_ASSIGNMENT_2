@@ -7,20 +7,23 @@ pipeline {
 
   stages {
     stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Workspace Debug') {
       steps {
-        checkout scm
+        echo "===== Workspace listing ====="
+        sh 'pwd; ls -la; echo "---- root files ----"; ls -la . || true; echo "---- app dir ----"; ls -la app || true; echo "---- show file app/requirements.txt ----"; if [ -f app/requirements.txt ]; then echo "requirements exists:"; sed -n "1,200p" app/requirements.txt; else echo "app/requirements.txt NOT FOUND"; fi'
       }
     }
 
-    stage('Unit Test') {
+    stage('Unit Test (debug)') {
       steps {
-        echo "Running Pytest unit tests..."
+        echo "Running Pytest unit tests inside a Python container..."
         sh '''
           mkdir -p reports
-          docker run --rm -v "$PWD":/src -w /src python:3.11-slim bash -lc "
-            pip install --no-cache-dir -r app/requirements.txt pytest pytest-cov &&
-            pytest -q --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml
-          "
+          # Debug: show current dir inside container before trying to install
+          docker run --rm -v "$PWD":/src -w /src python:3.11-slim bash -lc "echo 'Inside container: '; pwd; ls -la; echo 'Checking app/requirements.txt:'; if [ -f app/requirements.txt ]; then echo 'FOUND'; sed -n '1,200p' app/requirements.txt; else echo 'NOT FOUND'; fi"
         '''
       }
       post {
@@ -32,26 +35,15 @@ pipeline {
     }
 
     stage('Build Docker Image') {
+      when { expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' } }
       steps {
         echo "Building Docker image..."
         sh "docker build -t ${IMAGE}:${TAG} app/"
       }
     }
-
-    stage('List Built Images') {
-      steps {
-        echo "Listing built Docker images..."
-        sh "docker images | grep aceest_fitness || true"
-      }
-    }
   }
 
   post {
-    success {
-      echo "✅ CI pipeline finished successfully!"
-    }
-    failure {
-      echo "❌ CI pipeline failed. Check the console output for details."
-    }
+    always { echo "Pipeline finished" }
   }
 }
