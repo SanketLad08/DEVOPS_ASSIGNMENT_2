@@ -13,7 +13,6 @@ pipeline {
 
     stage('Prepare Host-Mounted Workspace') {
       steps {
-        echo "Copying workspace to host-mounted absolute directory (${HOST_WORKDIR})..."
         sh '''
           mkdir -p ${HOST_WORKDIR}
           rm -rf ${HOST_WORKDIR}/*
@@ -26,10 +25,10 @@ pipeline {
 
     stage('Unit Test') {
       steps {
-        echo "Running pytest in a host-mounted python container using ${HOST_WORKDIR}..."
+        echo "Running pytest in a host-mounted python container using ${HOST_WORKDIR} (PYTHONPATH=/src)..."
         sh '''
           mkdir -p reports
-          docker run --rm -v /home/slad/Desktop/DEVOPS:/src -w /src python:3.11-slim bash -lc "
+          docker run --rm -e PYTHONPATH=/src -v /home/slad/Desktop/DEVOPS:/src -w /src python:3.11-slim bash -lc "
             pip install --no-cache-dir -r app/requirements.txt pytest pytest-cov &&
             pytest -q --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml || true
           "
@@ -51,9 +50,7 @@ pipeline {
     }
 
     stage('List Built Images') {
-      steps {
-        sh "docker images | grep ${IMAGE} || true"
-      }
+      steps { sh "docker images | grep ${IMAGE} || true" }
     }
   }
 
