@@ -5,7 +5,7 @@ pipeline {
     TAG   = "${env.BUILD_ID}"
     HOST_WORKDIR = "/home/slad/Desktop/DEVOPS"
     // GHCR username (change if different)
-    GHCR_USER = "SanketLad08"
+    GHCR_USER = "sanketlad08"
   }
 
   stages {
