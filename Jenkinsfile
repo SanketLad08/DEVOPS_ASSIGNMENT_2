@@ -3,6 +3,7 @@ pipeline {
   environment {
     IMAGE = "aceest_fitness_local"
     TAG = "${env.BUILD_ID}"
+    HOST_WORKDIR = "/workspace/DEVOPS" // host-mounted path inside Jenkins container
   }
 
   stages {
@@ -10,20 +11,32 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Workspace Debug') {
+    stage('Prepare Host-Mounted Workspace') {
       steps {
-        echo "===== Workspace listing ====="
-        sh 'pwd; ls -la; echo "---- root files ----"; ls -la . || true; echo "---- app dir ----"; ls -la app || true; echo "---- show file app/requirements.txt ----"; if [ -f app/requirements.txt ]; then echo "requirements exists:"; sed -n "1,200p" app/requirements.txt; else echo "app/requirements.txt NOT FOUND"; fi'
+        echo "Copying workspace to host-mounted directory so host Docker can access sources..."
+        // ensure destination exists and is writable
+        sh '''
+          mkdir -p ${HOST_WORKDIR}
+          # remove old copy to avoid stale files
+          rm -rf ${HOST_WORKDIR}/*
+          # copy current workspace (this is inside the Jenkins container) to the mounted host path
+          cp -a "$WORKSPACE/." ${HOST_WORKDIR}/
+          echo "Files copied to ${HOST_WORKDIR}:"
+          ls -la ${HOST_WORKDIR} | sed -n '1,200p'
+        '''
       }
     }
 
-    stage('Unit Test (debug)') {
+    stage('Unit Test') {
       steps {
-        echo "Running Pytest unit tests inside a Python container..."
+        echo "Running Pytest unit tests inside a Python container (host mounted)..."
         sh '''
           mkdir -p reports
-          # Debug: show current dir inside container before trying to install
-          docker run --rm -v "$PWD":/src -w /src python:3.11-slim bash -lc "echo 'Inside container: '; pwd; ls -la; echo 'Checking app/requirements.txt:'; if [ -f app/requirements.txt ]; then echo 'FOUND'; sed -n '1,200p' app/requirements.txt; else echo 'NOT FOUND'; fi"
+          # Run container mounting the host-mounted copy so host docker sees files
+          docker run --rm -v ${HOST_WORKDIR}:/src -w /src python:3.11-slim bash -lc "
+            pip install --no-cache-dir -r app/requirements.txt pytest pytest-cov &&
+            pytest -q --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml || true
+          "
         '''
       }
       post {
@@ -37,8 +50,14 @@ pipeline {
     stage('Build Docker Image') {
       when { expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' } }
       steps {
-        echo "Building Docker image..."
-        sh "docker build -t ${IMAGE}:${TAG} app/"
+        echo "Building Docker image using host-mounted workspace..."
+        sh "docker build -t ${IMAGE}:${TAG} ${HOST_WORKDIR}/app"
+      }
+    }
+
+    stage('List Built Images') {
+      steps {
+        sh "docker images | grep ${IMAGE} || true"
       }
     }
   }
