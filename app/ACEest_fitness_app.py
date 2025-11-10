@@ -37,6 +37,9 @@ def create_app():
     @app.route('/api/members', methods=['POST'])
     def add_member():
         payload = request.get_json() or {}
+        # validation tightened in v1.3: require non-empty name and positive integer age
+        if not isinstance(name, str) or not name.strip() or not isinstance(age, int) or age <= 0:
+            abort(400, description="Invalid payload. Provide non-empty name (string) and positive integer age.")
         name = payload.get('name')
         age = payload.get('age')
         if not name or not isinstance(age, int):
