@@ -1,47 +1,57 @@
 pipeline {
   agent any
   environment {
-    DOCKER_IMAGE = "your_dockerhub_username/aceest_fitness"
-    IMAGE_TAG = "${env.BUILD_ID}"
-    REGISTRY = "docker.io"
-    KUBE_CONTEXT = "minikube"
+    IMAGE = "aceest_fitness_local"
+    TAG = "${env.BUILD_ID}"
   }
+
   stages {
     stage('Checkout') {
-      steps { checkout scm }
-    }
-    stage('Build') {
       steps {
-        sh 'docker --version || true'
-        sh 'docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} app'
+        checkout scm
       }
     }
+
     stage('Unit Test') {
       steps {
-        sh 'pytest -q'
+        echo "Running Pytest unit tests..."
+        sh '''
+          mkdir -p reports
+          docker run --rm -v "$PWD":/src -w /src python:3.11-slim bash -lc "
+            pip install --no-cache-dir -r app/requirements.txt pytest pytest-cov &&
+            pytest -q --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml
+          "
+        '''
+      }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: 'reports/junit.xml'
+          archiveArtifacts artifacts: 'reports/**', fingerprint: true
+        }
       }
     }
-    stage('SonarQube Scan') {
+
+    stage('Build Docker Image') {
       steps {
-        echo 'Run SonarQube scan here (configure Jenkins Sonar plugin)'
+        echo "Building Docker image..."
+        sh "docker build -t ${IMAGE}:${TAG} app/"
       }
     }
-    stage('Push Image') {
+
+    stage('List Built Images') {
       steps {
-        echo 'Login and push to Docker registry - edit scripts/build_and_push.sh with your creds'
-        sh 'bash scripts/build_and_push.sh ${DOCKER_IMAGE} ${IMAGE_TAG}'
-      }
-    }
-    stage('Deploy to K8s') {
-      steps {
-        echo 'kubectl apply manifests - adjust as needed'
-        sh 'kubectl --context=${KUBE_CONTEXT} apply -f k8s/'
+        echo "Listing built Docker images..."
+        sh "docker images | grep aceest_fitness || true"
       }
     }
   }
+
   post {
-    always {
-      echo 'Pipeline finished.'
+    success {
+      echo "✅ CI pipeline finished successfully!"
+    }
+    failure {
+      echo "❌ CI pipeline failed. Check the console output for details."
     }
   }
 }
